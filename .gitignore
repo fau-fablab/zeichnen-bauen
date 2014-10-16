@@ -1,5 +1,8 @@
 *.svg
+*.eps
 *.jpg
 *.JPG
+*.png
+tmp*
 processing-*
 *~
