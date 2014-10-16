@@ -1,11 +1,13 @@
 import processing.pdf.*;
 import java.awt.event.*;
-
+import java.util.*;
+//import Filter8bit.pde;
 int screenHeight = 768;
 int screenWidth;
 
-float bwthreshold = 0.6;
-
+float bwthreshold = -1;
+float mean=-1; // Durchschnittliche Helligkeit (Startwert für bwthreshold)
+int blur=-1;
 float selectionTop  = -1;
 float selectionLeft = -1;
 float selectionBottom = -1;
@@ -27,14 +29,100 @@ boolean fileChange = true;
 
 PImage img, blackwhite, cut, thumb;
 
-String pathfolder = "C:\\Users\\Michael\\Documents\\FabLab\\fab_shadows\\results\\"; // path to folder for the generated files, include trailing / 
-String pathautotrace = "c:\\cygwin\\bin\\autotrace.exe"; // full path to autotrace binary (including autotrace executable itself)
-String pathvector = "C:\\Program Files (x86)\\Adobe\\Adobe Illustrator CS2\\Support Files\\Contents\\Windows\\Illustrator.exe";
-String pathsilhouette = "C:\\Program Files (x86)\\Silhouette Studio\\Silhouette Studio.exe";
-String inPath = "C:\\Users\\Michael\\Documents\\FabLab\\fab_shadows\\shots";
+//String pathfolder = "C:\\Users\\Michael\\Documents\\FabLab\\fab_shadows\\results\\"; // path to folder for the generated files, include trailing / 
+//String pathautotrace = "c:\\cygwin\\bin\\autotrace.exe"; // full path to autotrace binary (including autotrace executable itself)
+//String pathvector = "C:\\Program Files (x86)\\Adobe\\Adobe Illustrator CS2\\Support Files\\Contents\\Windows\\Illustrator.exe";
+//String pathsilhouette = "C:\\Program Files (x86)\\Silhouette Studio\\Silhouette Studio.exe";
+//String inPath = "C:\\Users\\Michael\\Documents\\FabLab\\fab_shadows\\shots";
+//String fileFile = "C:\\Users\\Michael\\Documents\\FabLab\\fab_shadows\\shots\\file.txt";
+String pathfolder = "/home/max/fablab/Messe/ZeichnenBauen/"; // path to folder for the generated files, include trailing / 
+String pathautotrace = "autotrace"; // full path to autotrace binary (including autotrace executable itself)
+String pathvector = "inkscape";
+String pathsilhouette = "";
+String inPath = pathfolder;
 String fileFile = "C:\\Users\\Michael\\Documents\\FabLab\\fab_shadows\\shots\\file.txt";
-
+String inFile=pathfolder+"capture.jpg";
 String message = "";
+
+
+/**
+ * Filter8bit is a collection of non-destructive, threadsafe filters for
+ * grayscale images in Processing PImage format. All filters are implemented as
+ * static methods so no instance is needed.
+ * 
+ * @author Karsten Schmidt < i n f o [ a t ] t o x i . co . u k >
+ * @version 0.1
+ */
+
+  private static int[] koff;
+
+  private static int prevKernelSize = -1;
+
+  private static int prevWidth = -1;
+
+  /**
+   * Non-destructively applies an adaptive thresholding filter to the passed
+   * in image (grayscale only). Filter8bit only uses data stored in the blue
+   * channel of the image (lowest 8 bit).
+   * 
+   * @param img
+   *            image to be filtered
+   * @param ks
+   *            kernel size
+   * @param c
+   *            constant integer value to be subtracted from kernel result
+   * @return filtered version of the image (with alpha channel set to full
+   *         opacity)
+   */
+
+  public static PImage adaptiveThreshold(PImage img, int ks, int c) {
+    PImage img2 = new PImage(img.width, img.height);
+                img.loadPixels();
+                img2.loadPixels();
+    img2.format = img.format;
+    img2.pixels = adaptiveThreshold(img.pixels, img.width, img.height, ks,
+        c);
+                img2.updatePixels();
+    return img2;
+  }
+
+  public static int[] adaptiveThreshold(int[] pix, int width, int height,
+      int kernelSize, int filterConst) {
+    int maxIdx = pix.length;
+    int[] dest = new int[maxIdx];
+    int kl = kernelSize * kernelSize;
+    int ck = kernelSize >> 1;
+    if (kl != prevKernelSize || width != prevWidth) {
+      System.out.println("recalc threshold filter kernel");
+      koff = new int[kl];
+      prevKernelSize = kl;
+      prevWidth  = width;
+      for (int k = 0, off = -width * ck - ck; k < kl; k++) {
+        koff[k] = off;
+        if ((k % kernelSize) == kernelSize - 1)
+          off += width - kernelSize + 1;
+        else
+          off++;
+      }
+    }
+    for (int i = 0; i < maxIdx; i++) {
+      int mean = 0;
+      for (int k = 0; k < kl; k++) {
+        int idx = i + koff[k];
+        if (idx >= 0 && idx < maxIdx) {
+          mean += pix[idx] & 0xff;
+        }
+      }
+      mean = (mean / kl) - filterConst;
+      if ((pix[i] & 0xff) > mean)
+        dest[i] = 0xffffffff;
+      else
+        dest[i] = 0xff000000;
+    }
+    return dest;
+  }
+
+
 
 void setup()
 {
@@ -43,14 +131,10 @@ void setup()
       mouseWheel(mwe.getWheelRotation());
   }}); 
   
-  String inFile = loadStrings(fileFile)[0];
-  inFile = inFile.replace("\"", "").trim();
-  img = loadImage(inFile);
-    
-  screenWidth = 768 * img.width / img.height;
+//  String inFile = loadStrings(fileFile)[0];
+//  inFile = inFile.replace("\"", "").trim();
   
-  blackwhite = new PImage(screenWidth, screenHeight); 
-  size(screenWidth, screenHeight);
+  fetchImage();
 }
 
 void draw()
@@ -58,6 +142,9 @@ void draw()
     drawImage(); 
     drawSelection();
     drawMessage();
+    if (thChange) {
+        drawPleaseWait();
+    }
 }
 
 void drawMessage()
@@ -65,6 +152,20 @@ void drawMessage()
   fill(0,255,0);
   textSize(18);
   text(message, 100, 100);
+}
+
+void updateThresholds() {
+  thChange=true;
+  noLoop();
+  println("wait");
+  drawPleaseWait();
+  loop();
+}
+
+void drawPleaseWait() {
+ fill(255,0,0);
+  textSize(18);
+  text("Bitte warten...", 400, 400); 
 }
 
 void drawList()
@@ -78,14 +179,85 @@ void drawList()
   }
 }
 
+void fetchImage()
+{
+  
+  Process gphoto = null;
+  String[] gphotoParams={"gphoto2","--capture-image-and-download","--filename=capture.jpg","--force-overwrite"};
+  String[] env={};
+//  // lösche vorheriges Bild, wenn noch vorhanden
+//  try {
+//    File f=new File(inFile);
+//    f.delete()
+//  } catch (Exception e) {
+//     // alles okay, inFile existierte nicht
+//  }
+  try {
+    println("starte gphoto2");
+    gphoto=Runtime.getRuntime().exec(gphotoParams,env,new File(inPath));
+  } catch (IOException e) {
+    die("gphoto2 oder Pfad 'inpath' nicht gefunden!");
+  }
+  waitForProcess(gphoto);
+  if (gphoto.exitValue() != 0) {
+    String errorMessage="gphoto2 ist fehlgeschlagen - außer Fokus? Kamera eingesteckt?";
+    noLoop();
+    fill(255,0,0);
+  textSize(18);
+  text(errorMessage, 200, 200);
+  // TODO gescheit anzeigen
+  loop();
+  }
+  img = loadImage(inFile);
+  img.loadPixels();
+  println("Test: Blaufilter");
+  for (int i=0; i<img.width*img.height; i++) {
+    int blau=img.pixels[i]&0xff;
+    img.pixels[i]=blau | blau <<8 | blau << 16 | 0xff << 24;
+    //img.pixels[i]=(img.pixels[i]&0xffff0000) | (((img.pixels[i]&0x0000ff00)/6)&0x0000ff00) | (((img.pixels[i]&0x000000ff)/6)&0x000000ff); 
+  }
+  img.updatePixels();
+  img.filter(GRAY);
+  long grayMean=0;
+  for (int i=0; i<img.width*img.height; i++) {
+    grayMean+=img.pixels[i] & 0xff;
+  }
+  mean=(float)grayMean/img.width/img.height/256;
+  println(mean);
+  float factor=0.75; // Wieviel Prozent des Bildschirms belegt das Fenster?
+  
+  if ((displayWidth/displayHeight)>(img.width/img.height)) {
+     // Monitor ist mehr widescreen als das Bild
+     // Höhe ist der beschränkende Faktor
+     screenHeight=ceil(displayHeight*factor);
+     screenWidth=screenHeight*img.width/img.height;
+  } else {
+    // andernfalls: Breite ist der beschränkende Faktor
+     screenWidth=ceil(displayWidth*factor);
+     screenHeight=screenWidth*img.height/img.width;
+  }
+  
+  blackwhite = new PImage(screenWidth, screenHeight); 
+  size(screenWidth, screenHeight);
+}
+
 void drawImage()
 {
   if (thChange)
   {
+    thChange = false;
+//    int calcThreshold=ceil(bwthreshold*255-128);
+//    blackwhite=adaptiveThreshold(img,100,calcThreshold);
+//    println(calcThreshold);
     blackwhite.copy(img, 0, 0, img.width, img.height, 0, 0, blackwhite.width, blackwhite.height);
   
-    blackwhite.filter(THRESHOLD, bwthreshold);
-    thChange = false;
+    if (blur>1) {
+      blackwhite.filter(BLUR,blur-1);
+    }
+   if (bwthreshold> -1) {
+     blackwhite.filter(THRESHOLD, bwthreshold);
+   }
+    
   }
   if (selectionBottom != -1)
   {
@@ -96,6 +268,7 @@ void drawImage()
   }
   else
   {
+     message = "Zuschneiden: erste Ecke anklicken, dann zweite Ecke anklicken.\nWeichzeichnen (normalerweise nicht nötig): Runterscrollen\nNeues Bild: Rechtsklick.\n";
      image(blackwhite, 0,0,blackwhite.width,blackwhite.height);
   }
 
@@ -111,25 +284,45 @@ void drawSelection()
 }
 
 void mouseWheel(int delta) {
-  bwthreshold += delta * 0.01;
-  thChange = true;
+  if (bwthreshold !=-1) {
+    bwthreshold += delta * 0.01;
+    bwthreshold=max(min(bwthreshold,1),0);
+    message="threshold:" + bwthreshold;
+  } else {
+    blur += delta;
+    if (blur<1) {
+      blur=1;
+    }
+    if (blur>6) {
+      blur=6;
+    }
+  }
+  updateThresholds();
 }
 
 void mousePressed() {
   if (mouseButton == LEFT) {
+    blur=1;
     if (selectionTop == -1)
     {
       selectionTop = mouseY;
       selectionLeft = mouseX;
     }
-    else if  (selectionBottom == -1 && mouseY > selectionTop &&  mouseX > selectionLeft)
+    else if  (selectionBottom == -1 && mouseY != selectionTop &&  mouseX != selectionLeft)
     {
-      selectionBottom = mouseY;
-      selectionRight = mouseX;
-      message = "save on left click";
-    }
-    else if  (selectionBottom != -1)
-    {
+      // max/min, um "auf dem Kopf stehende" Auswahl, d.h. von rechts-unten nach links-oben markierte Auswahl, auch zu akzeptieren
+      selectionBottom = max(mouseY,selectionTop);
+      selectionTop = min(mouseY,selectionTop);
+      
+      selectionRight = max(mouseX,selectionLeft);
+      selectionLeft = min(mouseX,selectionLeft);
+      if (selectionBottom>selectionTop)
+      message="scroll for threshold"; 
+      bwthreshold=mean;
+      updateThresholds();
+      img.filter(BLUR,blur-1);
+      blur=1;
+    }  else if  (selectionBottom != -1) {
       saveFiles();
       message = "Silhouette gespeichert";
       exit();
@@ -140,7 +333,11 @@ void mousePressed() {
       selectionLeft = -1;
       selectionBottom = -1;
       selectionRight = -1;
+      blur=1;
+      bwthreshold=-1;
       message = "";
+      fetchImage();
+      updateThresholds();
   } 
 }
 
@@ -160,6 +357,7 @@ String getTimestamp()
 
 void autoTrace(String type, String name)
 {
+  println("Vektorisiere mit autotrace...");
   String[] params = {
         pathautotrace, // actual command 
         "--input-format=png", // reading png
@@ -173,18 +371,21 @@ void autoTrace(String type, String name)
         "--width-weight-factor=0.1", 
         "--line-reversion-threshold=0.1", 
         "--preserve-width", 
-        "--filter-iterations=2", 
+        "--filter-iterations=4",
+       "--error-threshold=4", 
         "--remove-adjacent-corners", 
-        "--background-color=ffffff", 
+        "--background-color=ffffff",
+        "--tangent-surround=10", 
         "--output-format="+type, 
         name+".png"
       };
 
-      exec(params); 
+      execAndWait(params); 
 }
 
 void openVectorSoftware(String name)
 {
+  println("Starte Vektorgrafikprogramm");
   String[] params = {
         pathvector, // actual command 
         name
@@ -214,7 +415,8 @@ void saveFiles()
     
     String lines[] = loadStrings(fileNamePlain+".svg");
     String[] lines2 = split(lines[2], "\"fill:#010101; stroke:none;\" ");
-      lines2[0] = lines2[0] + "\"fill:#ffffff;stroke:#000000;stroke-opacity:1;stroke-width:0.028;stroke-miterlimit:0.01;stroke-dasharray:none\"";
+    //  lines2[0] = lines2[0] + "\"fill:#ffffff;stroke:#000000;stroke-opacity:1;stroke-width:0.028;stroke-miterlimit:0.01;stroke-dasharray:none\"";
+    lines2[0] = lines2[0] + "\"fill:#ffffff;stroke:#ff0000;stroke-opacity:1;stroke-width:1;stroke-miterlimit:0.01;stroke-dasharray:none\"";
     
       
     lines[2] = lines2[0] + " " + lines2[1];
@@ -255,3 +457,30 @@ File[] listFiles(String dir) {
     return null;
   }
 }
+
+Process execAndWait(String[] arg) {
+  Process p=exec(arg);
+  waitForProcess(p);
+  return p;
+}
+
+void waitForProcess(Process p) {
+  while (true) {
+    try {
+        p.waitFor();
+        break;
+      } catch (InterruptedException e) {
+        continue; 
+      }
+  }
+}
+
+
+
+
+
+
+
+
+
+
