@@ -2,14 +2,20 @@ import processing.pdf.*;
 import java.awt.event.*;
 import java.util.*;
 
+import java.io.*;
+
+import java.lang.Runtime.*;
+
+
 // CONFIGURATION - TODO: ask interactively
 // TODO camera selection
-String pathfolder = "/home/max/fablab/zeichnen-bauen/shots/"; // path to folder for the generated files, include trailing / 
+String pathfolder = "/home/fablab/shots/"; // path to folder for the generated files, include trailing / 
 boolean outputOutline=false; // True: red outline for lasercutting, False: black fill + red outline
 boolean vectorizeParametersSilhouette=false; // True: more aggressive simplification (for silhouette photos where you don't want every single hair)
 
 // more configuration, usually not necessary to change:
-String pathautotrace = "autotrace"; // full path to autotrace binary (including autotrace executable itself)
+String pathautotrace = "/usr/bin/autotrace"; // full path to autotrace binary (including autotrace executable itself)
+String pathconvert = "convert";
 String pathvector = "inkscape";
 String pathsilhouette = "";
 String message = "";
@@ -183,7 +189,7 @@ void drawList()
 void fetchImage()
 {
 
-  Process gphoto = null;
+  Process gphoto  = null;
   String[] gphotoParams= {
     "gphoto2", "--capture-image-and-download", "--filename="+inFile, "--force-overwrite"
   };
@@ -199,6 +205,7 @@ void fetchImage()
   //  }
   try {
     println("starte gphoto2");
+  //  println(gphotoParams);
     gphoto=Runtime.getRuntime().exec(gphotoParams, env, new File(inPath));
   } 
   catch (IOException e) {
@@ -362,6 +369,37 @@ String getTimestamp()
   return join(nf(timestamp, 0), "-");
 }
 
+void convertTga(String name) // this is required as on a modern distro autotrace will break for everything except tga (lol)
+{
+ println("Converting to tga for reasons ...");
+   String runstring= pathconvert+" "+name+".png "+name+".tga"; // actual command 
+   String[] params = {
+     runstring
+  };
+  println(params[0]);
+//  println(params[1]);
+ // execAndWait(params);
+  try {
+    String line;
+  Process p = Runtime.getRuntime().exec(runstring); // das ist zwar nicht schön aber sonst funktionierts nicht :-(
+  
+  BufferedReader input =  
+        new BufferedReader  
+          (new InputStreamReader(p.getInputStream()));  
+      while ((line = input.readLine()) != null) {  
+        System.out.println(line);  
+      }  
+      input.close();  
+      waitForProcess(p);
+      int exitStatus = p.exitValue();
+      println(exitStatus);
+  }
+
+  catch (Exception err) {
+    err.printStackTrace();
+  }
+}
+
 void autoTrace(String type, String name)
 {
   println("Vektorisiere mit autotrace...");
@@ -369,7 +407,7 @@ void autoTrace(String type, String name)
   if (vectorizeParametersSilhouette==true) {
     String[] paramsSilhouette = {
       pathautotrace, // actual command 
-      "--input-format=png", // reading png
+      "--input-format=tga", // reading tga
       "--output-file="+name+"."+type, // filename of SCG output
       "--dpi=72", // resolution
       "--color-count=2", 
@@ -386,14 +424,14 @@ void autoTrace(String type, String name)
       "--background-color=ffffff", 
       "--tangent-surround=10", 
       "--output-format="+type, 
-      name+".png"
+      name+".tga"
     };
     params=paramsSilhouette;
   } 
   else {
     String[] paramsNormal = {
       pathautotrace, // actual command 
-      "--input-format=png", // reading png
+      "--input-format=tga", // reading png
       "--output-file="+name+"."+type, // filename of SCG output
       "--dpi=72", // resolution
       "--color-count=2", 
@@ -408,7 +446,7 @@ void autoTrace(String type, String name)
       "--remove-adjacent-corners", 
       "--background-color=ffffff", 
       "--output-format="+type, 
-      name+".png"
+      name+".tga"
     };
     params=paramsNormal;
   }
@@ -444,10 +482,19 @@ void saveFiles()
   String fileNamePlain = pathfolder + "shadow"+getTimestamp();
 
   cut.save(fileNamePlain + ".png");
+  convertTga(fileNamePlain);
+  delay(200);
   autoTrace("svg", fileNamePlain);
   delay(1000);
-
-  String lines[] = loadStrings(fileNamePlain+".svg");
+/*
+ // String lines[] = loadStrings(fileNamePlain+".svg");
+  String [] lines = {fileNamePlain, ".svg",""};
+  println(lines.length);
+  println(fileNamePlain.length());
+  println(fileNamePlain);
+  println(lines[0]);
+  println(lines[1]);
+  println(lines[2]);
   String[] lines2 = split(lines[2], "\"fill:#010101; stroke:none;\" ");
   //  lines2[0] = lines2[0] + "\"fill:#ffffff;stroke:#000000;stroke-opacity:1;stroke-width:0.028;stroke-miterlimit:0.01;stroke-dasharray:none\"";
   if (outputOutline) {
@@ -461,8 +508,10 @@ void saveFiles()
   lines[2] = lines2[0] + " " + lines2[1];
 
   saveStrings(fileNamePlain+".svg", lines);
-
+*/
   //makeLaserPdf(fileNamePlain, cut);
+  println(fileNamePlain);
+  println(fileNamePlain+".svg");
   openVectorSoftware(fileNamePlain+".svg");
   //openSilhouette(fileNamePlain+".svg");
 }
