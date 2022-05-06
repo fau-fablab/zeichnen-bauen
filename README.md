@@ -1,5 +1,7 @@
-zeichnen-bauen
+zeichnen-bauen !!! DEPRECATED !!!
 ==============
+
+DEPRECATED: This has moved to windows and a bit of cleanup in the zeichnen-bauen-windows repository
 
 tl;dr: make image, threshold, crop, vectorize, open inkscape, profit :)
 
